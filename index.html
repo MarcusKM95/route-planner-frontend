@@ -1,0 +1,67 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Route Planner Frontend</title>
+    <link rel="stylesheet" href="/src/styles.css">
+</head>
+<body>
+<div class="container">
+    <h1>Route Planner (A* Demo)</h1>
+
+    <section class="controls">
+        <h2>Input</h2>
+        <div class="grid-controls">
+            <label>
+                Grid width:
+                <input type="number" id="gridWidth" value="10" min="2">
+            </label>
+            <label>
+                Grid height:
+                <input type="number" id="gridHeight" value="10" min="2">
+            </label>
+        </div>
+
+        <div class="point-controls">
+            <label>
+                Start X:
+                <input type="number" id="startX" value="1" min="0">
+            </label>
+            <label>
+                Start Y:
+                <input type="number" id="startY" value="1" min="0">
+            </label>
+            <label>
+                End X:
+                <input type="number" id="endX" value="8" min="0">
+            </label>
+            <label>
+                End Y:
+                <input type="number" id="endY" value="1" min="0">
+            </label>
+        </div>
+
+        <div class="heuristic-controls">
+            <label>
+                Heuristic:
+                <select id="heuristic">
+                    <option value="MANHATTAN">Manhattan</option>
+                    <option value="EUCLIDEAN">Euclidean</option>
+                </select>
+            </label>
+        </div>
+
+        <button id="runButton">Compute route</button>
+    </section>
+
+    <section class="output">
+        <h2>Result</h2>
+        <div id="metrics"></div>
+        <pre id="pathOutput"></pre>
+    </section>
+</div>
+
+<!-- Vite: ES module entry -->
+<script type="module" src="/src/app.js"></script>
+</body>
+</html>
