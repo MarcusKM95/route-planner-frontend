@@ -11,25 +11,35 @@
 
     <section class="controls">
         <h2>Input</h2>
+
+        <div class="restaurant-controls">
+            <label>
+                Restaurant:
+                <select id="restaurantSelect">
+                    <option value="">Loading restaurants...</option>
+                </select>
+            </label>
+        </div>
+
         <div class="grid-controls">
             <label>
                 Grid width:
-                <input type="number" id="gridWidth" value="10" min="2">
+                <input type="number" id="gridWidth" value="30" min="2" readonly>
             </label>
             <label>
                 Grid height:
-                <input type="number" id="gridHeight" value="10" min="2">
+                <input type="number" id="gridHeight" value="20" min="2" readonly>
             </label>
         </div>
 
         <div class="point-controls">
             <label>
                 Start X:
-                <input type="number" id="startX" value="1" min="0">
+                <input type="number" id="startX" value="0" min="0" readonly>
             </label>
             <label>
                 Start Y:
-                <input type="number" id="startY" value="1" min="0">
+                <input type="number" id="startY" value="0" min="0" readonly>
             </label>
             <label>
                 End X:
@@ -50,10 +60,13 @@
                 </select>
             </label>
         </div>
-
         <button id="runButton">Compute route</button>
     </section>
-
+    <section class="canvas-section">
+        <h2>Map</h2>
+        <canvas id="cityCanvas"></canvas>
+        <p class="canvas-hint">Restaurant = blue, destination = green, route = red line.</p>
+    </section>
     <section class="output">
         <h2>Result</h2>
         <div id="metrics"></div>

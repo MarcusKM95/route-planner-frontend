@@ -58,3 +58,32 @@ button:hover {
 .error {
     color: #ff6b6b;
 }
+
+.restaurant-controls {
+    margin-bottom: 0.75rem;
+}
+
+
+
+
+.canvas-section {
+    background: #1b2836;
+    padding: 1rem;
+    margin-bottom: 1rem;
+    border-radius: 8px;
+    box-shadow: 0 0 8px rgba(0,0,0,0.3);
+}
+
+#cityCanvas {
+    display: block;
+    border: 1px solid #3b4a5a;
+    background: #0b141d;
+    margin-top: 0.5rem;
+    max-width: 100%;
+}
+
+.canvas-hint {
+    font-size: 0.85rem;
+    color: #cccccc;
+    margin-top: 0.4rem;
+}

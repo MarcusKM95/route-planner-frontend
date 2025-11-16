@@ -1,33 +1,196 @@
 
+const GRID_WIDTH = 30;   // should match CityMap.CITY_WIDTH
+const GRID_HEIGHT = 20;  // should match CityMap.CITY_HEIGHT
+const CELL_SIZE = 20;    // pixels per cell (can tweak)
+let canvas, ctx;
+
+let restaurants = [];
+let selectedRestaurant = null;
+
+async function loadRestaurants() {
+    try {
+        const response = await fetch("http://localhost:8080/api/restaurants");
+        if (!response.ok) {
+            console.error("Failed to load restaurants:", response.status);
+            return;
+        }
+
+        restaurants = await response.json();
+
+        const select = document.getElementById("restaurantSelect");
+        select.innerHTML = ""; // clear "Loading..." option
+
+        if (restaurants.length === 0) {
+            const opt = document.createElement("option");
+            opt.value = "";
+            opt.textContent = "No restaurants available";
+            select.appendChild(opt);
+            return;
+        }
+
+        const defaultOpt = document.createElement("option");
+        defaultOpt.value = "";
+        defaultOpt.textContent = "Choose a restaurant";
+        select.appendChild(defaultOpt);
+
+        restaurants.forEach(r => {
+            const opt = document.createElement("option");
+            opt.value = r.id;       // "pizzaplanet"
+            opt.textContent = r.name; // "Pizza Planet"
+            select.appendChild(opt);
+        });
+
+    } catch (err) {
+        console.error("Error loading restaurants:", err);
+    }
+}
+
+function onRestaurantChange() {
+    const select = document.getElementById("restaurantSelect");
+    const selectedId = select.value;
+
+    const startXInput = document.getElementById("startX");
+    const startYInput = document.getElementById("startY");
+
+    if (!selectedId) {
+        selectedRestaurant = null;
+        startXInput.value = "";
+        startYInput.value = "";
+        return;
+    }
+
+    const restaurant = restaurants.find(r => r.id === selectedId);
+    selectedRestaurant = restaurant || null;
+
+    if (selectedRestaurant) {
+        startXInput.value = selectedRestaurant.x;
+        startYInput.value = selectedRestaurant.y;
+    }
+}
+
+function initCanvas() {
+    canvas = document.getElementById("cityCanvas");
+    if (!canvas) return;
+
+    // Set canvas size based on grid size
+    canvas.width = GRID_WIDTH * CELL_SIZE;
+    canvas.height = GRID_HEIGHT * CELL_SIZE;
+
+    ctx = canvas.getContext("2d");
+
+    drawEmptyCity();
+}
+
+function drawEmptyCity() {
+    if (!ctx) return;
+
+    // Clear
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+    // Draw grid background
+    ctx.fillStyle = "#101820";
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+    // Draw grid lines
+    ctx.strokeStyle = "#1f364d";
+    ctx.lineWidth = 1;
+
+    for (let x = 0; x <= GRID_WIDTH; x++) {
+        ctx.beginPath();
+        ctx.moveTo(x * CELL_SIZE + 0.5, 0);
+        ctx.lineTo(x * CELL_SIZE + 0.5, canvas.height);
+        ctx.stroke();
+    }
+
+    for (let y = 0; y <= GRID_HEIGHT; y++) {
+        ctx.beginPath();
+        ctx.moveTo(0, y * CELL_SIZE + 0.5);
+        ctx.lineTo(canvas.width, y * CELL_SIZE + 0.5);
+        ctx.stroke();
+    }
+}
+
+function drawCity(path, restaurant, destX, destY) {
+    drawEmptyCity();
+
+    if (!ctx) return;
+
+    // Draw restaurant
+    if (restaurant) {
+        drawCellCircle(restaurant.x, restaurant.y, "#3b82f6"); // blue
+    }
+
+    // Draw destination
+    if (Number.isFinite(destX) && Number.isFinite(destY)) {
+        drawCellCircle(destX, destY, "#22c55e"); // green
+    }
+
+    // Draw path
+    if (Array.isArray(path) && path.length > 1) {
+        ctx.strokeStyle = "#ef4444"; // red
+        ctx.lineWidth = 3;
+        ctx.beginPath();
+
+        const first = path[0];
+        ctx.moveTo(
+            first.x * CELL_SIZE + CELL_SIZE / 2,
+            first.y * CELL_SIZE + CELL_SIZE / 2
+        );
+
+        for (let i = 1; i < path.length; i++) {
+            const p = path[i];
+            ctx.lineTo(
+                p.x * CELL_SIZE + CELL_SIZE / 2,
+                p.y * CELL_SIZE + CELL_SIZE / 2
+            );
+        }
+
+        ctx.stroke();
+    }
+}
+
+function drawCellCircle(x, y, color) {
+    if (!ctx) return;
+
+    ctx.fillStyle = color;
+    const cx = x * CELL_SIZE + CELL_SIZE / 2;
+    const cy = y * CELL_SIZE + CELL_SIZE / 2;
+    const r = CELL_SIZE * 0.35;
+
+    ctx.beginPath();
+    ctx.arc(cx, cy, r, 0, Math.PI * 2);
+    ctx.fill();
+}
+
+
 async function computeRoute() {
-    const gridWidth = parseInt(document.getElementById("gridWidth").value, 10);
-    const gridHeight = parseInt(document.getElementById("gridHeight").value, 10);
-    const startX = parseInt(document.getElementById("startX").value, 10);
-    const startY = parseInt(document.getElementById("startY").value, 10);
     const endX = parseInt(document.getElementById("endX").value, 10);
     const endY = parseInt(document.getElementById("endY").value, 10);
     const heuristic = document.getElementById("heuristic").value;
 
+    const metricsDiv = document.getElementById("metrics");
+    const pathOutput = document.getElementById("pathOutput");
+
+
+    if (!selectedRestaurant) {
+        metricsDiv.innerHTML = `<span class="error">Please choose a restaurant first.</span>`;
+        pathOutput.textContent = "";
+        return;
+    }
+
     const body = {
-        gridWidth,
-        gridHeight,
-        startX,
-        startY,
+        restaurantId: selectedRestaurant.id,
         endX,
         endY,
-        heuristic,
-        cells: [] // TODO: send obstacles from a grid UI
+        heuristic
     };
 
     try {
-        const response = await fetch("http://localhost:8080/api/route", {
+        const response = await fetch("http://localhost:8080/api/route/from-restaurant", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify(body)
         });
-
-        const metricsDiv = document.getElementById("metrics");
-        const pathOutput = document.getElementById("pathOutput");
 
         if (!response.ok) {
             const errorText = await response.text();
@@ -38,14 +201,16 @@ async function computeRoute() {
 
         const data = await response.json();
 
-        // Show metrics
         metricsDiv.innerHTML = `
+            <p><strong>Restaurant:</strong> ${selectedRestaurant.name} (${selectedRestaurant.x}, ${selectedRestaurant.y})</p>
+            <p><strong>Destination:</strong> (${endX}, ${endY})</p>
             <p><strong>Total distance:</strong> ${data.totalDistance}</p>
             <p><strong>Visited nodes:</strong> ${data.visitedNodes}</p>
             <p><strong>Time (ms):</strong> ${data.timeMs}</p>
         `;
 
-        // Show the raw path as text for now
+        drawCity(data.path, selectedRestaurant, endX, endY);
+
         if (Array.isArray(data.path)) {
             const formattedPath = data.path
                 .map(p => `(${p.x}, ${p.y})`)
@@ -56,16 +221,26 @@ async function computeRoute() {
         }
 
     } catch (err) {
-        document.getElementById("metrics").innerHTML =
+        metricsDiv.innerHTML =
             `<span class="error">Network or JS error: ${err}</span>`;
-        document.getElementById("pathOutput").textContent = "";
+        pathOutput.textContent = "";
     }
 }
 
 document.addEventListener("DOMContentLoaded", () => {
+    loadRestaurants();
+    initCanvas();
+
+    const restaurantSelect = document.getElementById("restaurantSelect");
+    restaurantSelect.addEventListener("change", onRestaurantChange);
+
     const runButton = document.getElementById("runButton");
     runButton.addEventListener("click", (e) => {
         e.preventDefault();
         computeRoute();
     });
+
+    // These are just display values now; backend uses fixed CityMap grid
+    document.getElementById("gridWidth").value = 30;
+    document.getElementById("gridHeight").value = 20;
 });
