@@ -238,6 +238,31 @@ function drawCellCircle(x, y, color) {
     ctx.fill();
 }
 
+function onCanvasClick(event) {
+    if (!canvas) return;
+
+    const rect = canvas.getBoundingClientRect();
+    const offsetX = event.clientX - rect.left;
+    const offsetY = event.clientY - rect.top;
+
+    const x = Math.floor(offsetX / CELL_SIZE);
+    const y = Math.floor(offsetY / CELL_SIZE);
+
+    // Check bounds
+    if (x < 0 || x >= GRID_WIDTH || y < 0 || y >= GRID_HEIGHT) {
+        return;
+    }
+
+    // Update End X / End Y inputs
+    const endXInput = document.getElementById("endX");
+    const endYInput = document.getElementById("endY");
+
+    endXInput.value = x;
+    endYInput.value = y;
+
+    drawCity([], selectedRestaurant, x, y);
+}
+
 
 async function computeRoute() {
     const endX = parseInt(document.getElementById("endX").value, 10);
@@ -306,6 +331,12 @@ document.addEventListener("DOMContentLoaded", () => {
     loadRestaurants();
     initCanvas();
     loadCityLayout();
+
+    //click handler implementation
+    const canvasElement = document.getElementById("cityCanvas");
+    if (canvasElement) {
+        canvasElement.addEventListener("click", onCanvasClick);
+    }
 
     const restaurantSelect = document.getElementById("restaurantSelect");
     restaurantSelect.addEventListener("change", onRestaurantChange);
