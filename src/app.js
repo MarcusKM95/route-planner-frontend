@@ -1,8 +1,9 @@
 
-const GRID_WIDTH = 30;   // should match CityMap.CITY_WIDTH
-const GRID_HEIGHT = 20;  // should match CityMap.CITY_HEIGHT
-const CELL_SIZE = 20;    // pixels per cell (can tweak)
+const GRID_WIDTH = 30;
+const GRID_HEIGHT = 20;
+const CELL_SIZE = 20;
 let canvas, ctx;
+let cityTypes = []; // Array of city type objects from backend
 
 let restaurants = [];
 let selectedRestaurant = null;
@@ -44,6 +45,47 @@ async function loadRestaurants() {
         console.error("Error loading restaurants:", err);
     }
 }
+
+async function loadCityLayout() {
+    try {
+        const response = await fetch("http://localhost:8080/api/city/layout");
+        if (!response.ok) {
+            console.error("Failed to load city layout:", response.status);
+            return;
+        }
+
+        const cells = await response.json();
+
+        // Initialize array with default "ROAD"
+        cityTypes = [];
+        for (let y = 0; y < GRID_HEIGHT; y++) {
+            cityTypes[y] = [];
+            for (let x = 0; x < GRID_WIDTH; x++) {
+                cityTypes[y][x] = "ROAD";
+            }
+        }
+
+        // Fill with types from backend
+        cells.forEach(cell => {
+            const x = cell.x;
+            const y = cell.y;
+            const type = cell.type || "ROAD";
+            if (
+                y >= 0 && y < GRID_HEIGHT &&
+                x >= 0 && x < GRID_WIDTH
+            ) {
+                cityTypes[y][x] = type;
+            }
+        });
+
+        // Redraw with updated layout
+        drawEmptyCity();
+
+    } catch (err) {
+        console.error("Error loading city layout:", err);
+    }
+}
+
 
 function onRestaurantChange() {
     const select = document.getElementById("restaurantSelect");
@@ -87,11 +129,44 @@ function drawEmptyCity() {
     // Clear
     ctx.clearRect(0, 0, canvas.width, canvas.height);
 
-    // Draw grid background
-    ctx.fillStyle = "#101820";
+    // Overall background
+    ctx.fillStyle = "#050816";
     ctx.fillRect(0, 0, canvas.width, canvas.height);
 
-    // Draw grid lines
+    // Draw cells by type
+    for (let y = 0; y < GRID_HEIGHT; y++) {
+        for (let x = 0; x < GRID_WIDTH; x++) {
+            const type =
+                cityTypes[y] && cityTypes[y][x]
+                    ? cityTypes[y][x]
+                    : "ROAD";
+
+            switch (type) {
+                case "BUILDING":
+                    ctx.fillStyle = "#4b5563";
+                    break;
+                case "PARK":
+                    ctx.fillStyle = "#14532d";
+                    break;
+                case "RIVER":
+                    ctx.fillStyle = "#1d4ed8";
+                    break;
+                case "ROAD":
+                default:
+                    ctx.fillStyle = "#101827";
+                    break;
+            }
+
+            ctx.fillRect(
+                x * CELL_SIZE,
+                y * CELL_SIZE,
+                CELL_SIZE,
+                CELL_SIZE
+            );
+        }
+    }
+
+    // Draw grid lines over the colored cells
     ctx.strokeStyle = "#1f364d";
     ctx.lineWidth = 1;
 
@@ -109,6 +184,7 @@ function drawEmptyCity() {
         ctx.stroke();
     }
 }
+
 
 function drawCity(path, restaurant, destX, destY) {
     drawEmptyCity();
@@ -212,10 +288,9 @@ async function computeRoute() {
         drawCity(data.path, selectedRestaurant, endX, endY);
 
         if (Array.isArray(data.path)) {
-            const formattedPath = data.path
+            pathOutput.textContent = data.path
                 .map(p => `(${p.x}, ${p.y})`)
                 .join(" -> ");
-            pathOutput.textContent = formattedPath;
         } else {
             pathOutput.textContent = "No path returned";
         }
@@ -230,6 +305,7 @@ async function computeRoute() {
 document.addEventListener("DOMContentLoaded", () => {
     loadRestaurants();
     initCanvas();
+    loadCityLayout();
 
     const restaurantSelect = document.getElementById("restaurantSelect");
     restaurantSelect.addEventListener("change", onRestaurantChange);
@@ -240,7 +316,7 @@ document.addEventListener("DOMContentLoaded", () => {
         computeRoute();
     });
 
-    // These are just display values now; backend uses fixed CityMap grid
+    // These are just display values after the implementation in the backend
     document.getElementById("gridWidth").value = 30;
     document.getElementById("gridHeight").value = 20;
 });
