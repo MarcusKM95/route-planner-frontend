@@ -4,6 +4,9 @@ const GRID_HEIGHT = 20;
 const CELL_SIZE = 20;
 let canvas, ctx;
 let cityTypes = []; // Array of city type objects from backend
+let stops = [];         // array of { x, y, label }
+let currentPath = [];   // last route path from backend
+
 
 let restaurants = [];
 let selectedRestaurant = null;
@@ -107,6 +110,11 @@ function onRestaurantChange() {
     if (selectedRestaurant) {
         startXInput.value = selectedRestaurant.x;
         startYInput.value = selectedRestaurant.y;
+
+        // Reset path and stops when changing restaurant
+        currentPath = [];
+        stops = [];
+        drawCity(currentPath, selectedRestaurant, stops);
     }
 }
 
@@ -185,8 +193,7 @@ function drawEmptyCity() {
     }
 }
 
-
-function drawCity(path, restaurant, destX, destY) {
+function drawCity(path, restaurant, stopsArray) {
     drawEmptyCity();
 
     if (!ctx) return;
@@ -196,9 +203,11 @@ function drawCity(path, restaurant, destX, destY) {
         drawCellCircle(restaurant.x, restaurant.y, "#3b82f6"); // blue
     }
 
-    // Draw destination
-    if (Number.isFinite(destX) && Number.isFinite(destY)) {
-        drawCellCircle(destX, destY, "#22c55e"); // green
+    // Draw all stops
+    if (Array.isArray(stopsArray)) {
+        for (const s of stopsArray) {
+            drawCellCircle(s.x, s.y, "#22c55e"); // green
+        }
     }
 
     // Draw path
@@ -259,8 +268,11 @@ function onCanvasClick(event) {
 
     endXInput.value = x;
     endYInput.value = y;
+    const label = `Stop ${stops.length + 1}`;
+    stops.push({ x, y, label });
 
-    drawCity([], selectedRestaurant, x, y);
+    // Redraw map with all stops and existing path if there is one
+    drawCity(currentPath, selectedRestaurant, stops);
 }
 
 
@@ -272,22 +284,42 @@ async function computeRoute() {
     const metricsDiv = document.getElementById("metrics");
     const pathOutput = document.getElementById("pathOutput");
 
-
     if (!selectedRestaurant) {
         metricsDiv.innerHTML = `<span class="error">Please choose a restaurant first.</span>`;
         pathOutput.textContent = "";
         return;
     }
 
+    // Build stops list for request, fallback to single end point if no stops.
+    let stopsForRequest;
+
+    if (stops.length > 0) {
+        stopsForRequest = stops.map((s, index) => ({
+            x: s.x,
+            y: s.y,
+            label: s.label || `Stop ${index + 1}`
+        }));
+    } else {
+        if (!Number.isFinite(endX) || !Number.isFinite(endY)) {
+            metricsDiv.innerHTML = `<span class="error">Click on the map or enter a valid destination first.</span>`;
+            pathOutput.textContent = "";
+            return;
+        }
+
+        stopsForRequest = [
+            { x: endX, y: endY, label: "Stop 1" }
+        ];
+    }
+
     const body = {
         restaurantId: selectedRestaurant.id,
-        endX,
-        endY,
-        heuristic
+        stops: stopsForRequest,
+        heuristic,
+        strategy: "IN_ORDER"
     };
 
     try {
-        const response = await fetch("http://localhost:8080/api/route/from-restaurant", {
+        const response = await fetch("http://localhost:8080/api/route/multi", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify(body)
@@ -302,20 +334,24 @@ async function computeRoute() {
 
         const data = await response.json();
 
+        currentPath = Array.isArray(data.path) ? data.path : [];
+
         metricsDiv.innerHTML = `
             <p><strong>Restaurant:</strong> ${selectedRestaurant.name} (${selectedRestaurant.x}, ${selectedRestaurant.y})</p>
-            <p><strong>Destination:</strong> (${endX}, ${endY})</p>
+            <p><strong>Stops:</strong> ${stopsForRequest.map(s => `(${s.x}, ${s.y})`).join(" → ")}</p>
             <p><strong>Total distance:</strong> ${data.totalDistance}</p>
-            <p><strong>Visited nodes:</strong> ${data.visitedNodes}</p>
-            <p><strong>Time (ms):</strong> ${data.timeMs}</p>
+            <p><strong>Visited nodes (total):</strong> ${data.visitedNodes}</p>
+            <p><strong>Total time (ms):</strong> ${data.timeMs}</p>
         `;
 
-        drawCity(data.path, selectedRestaurant, endX, endY);
+        // Draw multi-stop path & stops
+        drawCity(currentPath, selectedRestaurant, stopsForRequest);
 
         if (Array.isArray(data.path)) {
-            pathOutput.textContent = data.path
+            const formattedPath = data.path
                 .map(p => `(${p.x}, ${p.y})`)
                 .join(" -> ");
+            pathOutput.textContent = formattedPath;
         } else {
             pathOutput.textContent = "No path returned";
         }
@@ -326,6 +362,7 @@ async function computeRoute() {
         pathOutput.textContent = "";
     }
 }
+
 
 document.addEventListener("DOMContentLoaded", () => {
     loadRestaurants();
