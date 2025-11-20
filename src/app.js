@@ -275,6 +275,25 @@ function onCanvasClick(event) {
     drawCity(currentPath, selectedRestaurant, stops);
 }
 
+function resetRoute() {
+    stops = [];
+    currentPath = [];
+
+    // Clear destination inputs
+    const endXInput = document.getElementById("endX");
+    const endYInput = document.getElementById("endY");
+    if (endXInput) endXInput.value = "";
+    if (endYInput) endYInput.value = "";
+
+    // Clear metrics & path output
+    const metricsDiv = document.getElementById("metrics");
+    const pathOutput = document.getElementById("pathOutput");
+    if (metricsDiv) metricsDiv.innerHTML = "";
+    if (pathOutput) pathOutput.textContent = "";
+
+    // Redraw map with only restaurant
+    drawCity(currentPath, selectedRestaurant, stops);
+}
 
 async function computeRoute() {
     const endX = parseInt(document.getElementById("endX").value, 10);
@@ -383,6 +402,14 @@ document.addEventListener("DOMContentLoaded", () => {
         e.preventDefault();
         computeRoute();
     });
+
+    const resetButton = document.getElementById("resetButton");
+    if (resetButton) {
+        resetButton.addEventListener("click", (e) => {
+            e.preventDefault();
+            resetRoute();
+        });
+    }
 
     // These are just display values after the implementation in the backend
     document.getElementById("gridWidth").value = 30;
