@@ -299,7 +299,8 @@ async function computeRoute() {
     const endX = parseInt(document.getElementById("endX").value, 10);
     const endY = parseInt(document.getElementById("endY").value, 10);
     const heuristic = document.getElementById("heuristic").value;
-
+    const strategySelect = document.getElementById("strategy");
+    const strategy = strategySelect ? strategySelect.value : "IN_ORDER";
     const metricsDiv = document.getElementById("metrics");
     const pathOutput = document.getElementById("pathOutput");
 
@@ -334,7 +335,7 @@ async function computeRoute() {
         restaurantId: selectedRestaurant.id,
         stops: stopsForRequest,
         heuristic,
-        strategy: "IN_ORDER"
+        strategy
     };
 
     try {
@@ -358,6 +359,7 @@ async function computeRoute() {
         metricsDiv.innerHTML = `
             <p><strong>Restaurant:</strong> ${selectedRestaurant.name} (${selectedRestaurant.x}, ${selectedRestaurant.y})</p>
             <p><strong>Stops:</strong> ${stopsForRequest.map(s => `(${s.x}, ${s.y})`).join(" → ")}</p>
+            <p><strong>Strategy:</strong> ${strategy}</p>
             <p><strong>Total distance:</strong> ${data.totalDistance}</p>
             <p><strong>Visited nodes (total):</strong> ${data.visitedNodes}</p>
             <p><strong>Total time (ms):</strong> ${data.timeMs}</p>
