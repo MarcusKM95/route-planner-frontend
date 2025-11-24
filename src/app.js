@@ -356,10 +356,24 @@ function drawCity(path, restaurant, stopsArray) {
         drawCellCircle(restaurant.x, restaurant.y, "#3b82f6");
     }
 
-    // Draw planner stops (green)
+    // ✅ Draw ACTIVE ORDERS from backend on top map (green)
+    if (Array.isArray(orders)) {
+        for (const o of orders) {
+            if (
+                o.status === "NEW" ||
+                o.status === "ASSIGNED" ||
+                o.status === "IN_PROGRESS"
+            ) {
+                drawCellCircle(o.x, o.y, "#22c55e");
+            }
+        }
+    }
+
+    // ✅ Draw PLANNER STOPS in a different color (so you can see the difference)
     if (Array.isArray(stopsArray)) {
         for (const s of stopsArray) {
-            drawCellCircle(s.x, s.y, "#22c55e");
+            // light purple for planner-only stops
+            drawCellCircle(s.x, s.y, "#a855f7");
         }
     }
 
