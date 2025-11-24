@@ -826,7 +826,7 @@ document.addEventListener("DOMContentLoaded", () => {
     setInterval(async () => {
         await fetch("http://localhost:8080/api/sim/step", { method: "POST" });
         await updateCourierMarkers();
-    }, 500);
+    }, 300);
 
     // Display-only fields
     document.getElementById("gridWidth").value = GRID_WIDTH;
