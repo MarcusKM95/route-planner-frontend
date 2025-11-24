@@ -77,6 +77,25 @@
         <canvas id="cityCanvas"></canvas>
         <p class="canvas-hint">Restaurant = blue, destination = green, route = red line.</p>
     </section>
+    <section class="panel">
+        <h2>Live Delivery Simulation</h2>
+
+        <div class="control-row">
+            <label for="orderRestaurantSelect">Restaurant:</label>
+            <select id="orderRestaurantSelect">
+                <option value="">Loading...</option>
+            </select>
+        </div>
+
+        <p class="hint">
+            Choose a restaurant, then click on the map to create an order at that address.
+            The nearest courier will be assigned automatically and start moving.
+        </p>
+
+        <canvas id="ordersCanvas"></canvas>
+
+        <div id="ordersInfo" class="info-box"></div>
+    </section>
     <section class="output">
         <h2>Result</h2>
         <div id="metrics"></div>

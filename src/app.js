@@ -3,13 +3,16 @@ const GRID_WIDTH = 30;
 const GRID_HEIGHT = 20;
 const CELL_SIZE = 20;
 let canvas, ctx;
+let ordersCanvas, ordersCtx;
 let cityTypes = []; // Array of city type objects from backend
 let stops = [];         // array of { x, y, label }
 let currentPath = [];   // last route path from backend
-
-
 let restaurants = [];
 let selectedRestaurant = null;
+let orderSelectedRestaurant = null;
+let couriers = [];
+let orders = [];
+
 
 async function loadRestaurants() {
     try {
@@ -21,28 +24,37 @@ async function loadRestaurants() {
 
         restaurants = await response.json();
 
-        const select = document.getElementById("restaurantSelect");
-        select.innerHTML = ""; // clear "Loading..." option
+        const plannerSelect = document.getElementById("restaurantSelect");
+        const orderSelect = document.getElementById("orderRestaurantSelect");
 
-        if (restaurants.length === 0) {
-            const opt = document.createElement("option");
-            opt.value = "";
-            opt.textContent = "No restaurants available";
-            select.appendChild(opt);
-            return;
+        function populateSelect(selectElem) {
+            if (!selectElem) return;
+
+            selectElem.innerHTML = "";
+
+            if (restaurants.length === 0) {
+                const opt = document.createElement("option");
+                opt.value = "";
+                opt.textContent = "No restaurants available";
+                selectElem.appendChild(opt);
+                return;
+            }
+
+            const defaultOpt = document.createElement("option");
+            defaultOpt.value = "";
+            defaultOpt.textContent = "Choose a restaurant";
+            selectElem.appendChild(defaultOpt);
+
+            restaurants.forEach(r => {
+                const opt = document.createElement("option");
+                opt.value = r.id;
+                opt.textContent = r.name;
+                selectElem.appendChild(opt);
+            });
         }
 
-        const defaultOpt = document.createElement("option");
-        defaultOpt.value = "";
-        defaultOpt.textContent = "Choose a restaurant";
-        select.appendChild(defaultOpt);
-
-        restaurants.forEach(r => {
-            const opt = document.createElement("option");
-            opt.value = r.id;       // "pizzaplanet"
-            opt.textContent = r.name; // "Pizza Planet"
-            select.appendChild(opt);
-        });
+        populateSelect(plannerSelect);
+        populateSelect(orderSelect);
 
     } catch (err) {
         console.error("Error loading restaurants:", err);
@@ -83,12 +95,149 @@ async function loadCityLayout() {
 
         // Redraw with updated layout
         drawEmptyCity();
+        if (ordersCtx) {
+            drawOrdersEmptyCity();
+        }
 
     } catch (err) {
         console.error("Error loading city layout:", err);
     }
 }
 
+function drawOrdersCity() {
+    drawOrdersEmptyCity();
+    if (!ordersCtx) return;
+
+    // Draw all restaurants (blue)
+    if (Array.isArray(restaurants)) {
+        for (const r of restaurants) {
+            drawOrdersCircle(r.x, r.y, "#3b82f6");
+        }
+    }
+
+    // Draw all orders (green)
+    if (Array.isArray(orders)) {
+        for (const o of orders) {
+            drawOrdersCircle(o.x, o.y, "#22c55e");
+        }
+    }
+
+    // Draw couriers (yellow)
+    if (Array.isArray(couriers)) {
+        for (const c of couriers) {
+            if (typeof c.currentX === "number" && typeof c.currentY === "number") {
+                drawOrdersCircle(c.currentX, c.currentY, "#eab308");
+            }
+        }
+    }
+}
+
+function drawOrdersCircle(x, y, color) {
+    if (!ordersCtx) return;
+
+    ordersCtx.fillStyle = color;
+    const cx = x * CELL_SIZE + CELL_SIZE / 2;
+    const cy = y * CELL_SIZE + CELL_SIZE / 2;
+    const r = CELL_SIZE * 0.35;
+
+    ordersCtx.beginPath();
+    ordersCtx.arc(cx, cy, r, 0, Math.PI * 2);
+    ordersCtx.fill();
+}
+
+async function updateCourierMarkers() {
+    try {
+        const [courierRes, orderRes] = await Promise.all([
+            fetch("http://localhost:8080/api/couriers"),
+            fetch("http://localhost:8080/api/orders")
+        ]);
+
+        if (!courierRes.ok || !orderRes.ok) {
+            console.error("Failed to load couriers or orders", courierRes.status, orderRes.status);
+            return;
+        }
+
+        couriers = await courierRes.json();
+        orders = await orderRes.json();
+
+        // Redraw main planner map
+        drawCity(currentPath, selectedRestaurant, stops);
+
+        // Redraw orders/live map
+        drawOrdersCity();
+
+    } catch (err) {
+        console.error("Error updating simulation:", err);
+    }
+}
+
+function onOrderRestaurantChange() {
+    const select = document.getElementById("orderRestaurantSelect");
+    const selectedId = select ? select.value : "";
+
+    if (!selectedId) {
+        orderSelectedRestaurant = null;
+        return;
+    }
+
+    const restaurant = restaurants.find(r => r.id === selectedId);
+    orderSelectedRestaurant = restaurant || null;
+}
+
+async function createAndAssignOrder(restaurantId, x, y) {
+    const infoDiv = document.getElementById("ordersInfo");
+
+    try {
+        // 1) Create order
+        const createRes = await fetch("http://localhost:8080/api/orders", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+                restaurantId,
+                x,
+                y,
+                label: `Frontend order (${x},${y})`
+            })
+        });
+
+        if (!createRes.ok) {
+            const txt = await createRes.text();
+            console.error("Create order failed:", txt);
+            if (infoDiv) infoDiv.textContent = `Error creating order: ${txt}`;
+            return;
+        }
+
+        const order = await createRes.json();
+
+        // 2) Assign order
+        const assignRes = await fetch(`http://localhost:8080/api/orders/${order.id}/assign`, {
+            method: "POST"
+        });
+
+        if (!assignRes.ok) {
+            const txt = await assignRes.text();
+            console.error("Assign order failed:", txt);
+            if (infoDiv) infoDiv.textContent = `Error assigning courier: ${txt}`;
+            return;
+        }
+
+        const assignment = await assignRes.json();
+
+        if (infoDiv) {
+            infoDiv.innerHTML = `
+                <p><strong>Created order #${order.id}</strong> at (${order.x}, ${order.y})</p>
+                <p><strong>Assigned courier:</strong> ${assignment.courier.name} (${assignment.courier.id})</p>
+            `;
+        }
+
+        // 3) Refresh maps
+        await updateCourierMarkers();
+
+    } catch (err) {
+        console.error("Error creating/assigning order:", err);
+        if (infoDiv) infoDiv.textContent = `Error: ${err}`;
+    }
+}
 
 function onRestaurantChange() {
     const select = document.getElementById("restaurantSelect");
@@ -130,6 +279,19 @@ function initCanvas() {
 
     drawEmptyCity();
 }
+
+function initOrdersCanvas() {
+    ordersCanvas = document.getElementById("ordersCanvas");
+    if (!ordersCanvas) return;
+
+    ordersCanvas.width = GRID_WIDTH * CELL_SIZE;
+    ordersCanvas.height = GRID_HEIGHT * CELL_SIZE;
+
+    ordersCtx = ordersCanvas.getContext("2d");
+
+    drawOrdersEmptyCity();
+}
+
 
 function drawEmptyCity() {
     if (!ctx) return;
@@ -191,7 +353,77 @@ function drawEmptyCity() {
         ctx.lineTo(canvas.width, y * CELL_SIZE + 0.5);
         ctx.stroke();
     }
+
+    if (Array.isArray(couriers)) {
+        for (const c of couriers) {
+            if (typeof c.currentX === "number" && typeof c.currentY === "number") {
+                drawCellCircle(c.currentX, c.currentY, "#eab308");
+            }
+        }
+    }
 }
+
+function drawOrdersEmptyCity() {
+    if (!ordersCtx || !ordersCanvas) return;
+
+    ordersCtx.clearRect(0, 0, ordersCanvas.width, ordersCanvas.height);
+
+    // Background
+    ordersCtx.fillStyle = "#050816";
+    ordersCtx.fillRect(0, 0, ordersCanvas.width, ordersCanvas.height);
+
+    // Terrain tiles
+    for (let y = 0; y < GRID_HEIGHT; y++) {
+        for (let x = 0; x < GRID_WIDTH; x++) {
+            const type =
+                cityTypes[y] && cityTypes[y][x]
+                    ? cityTypes[y][x]
+                    : "ROAD";
+
+            switch (type) {
+                case "BUILDING":
+                    ordersCtx.fillStyle = "#4b5563";
+                    break;
+                case "PARK":
+                    ordersCtx.fillStyle = "#14532d";
+                    break;
+                case "RIVER":
+                    ordersCtx.fillStyle = "#1d4ed8";
+                    break;
+                case "ROAD":
+                default:
+                    ordersCtx.fillStyle = "#101827";
+                    break;
+            }
+
+            ordersCtx.fillRect(
+                x * CELL_SIZE,
+                y * CELL_SIZE,
+                CELL_SIZE,
+                CELL_SIZE
+            );
+        }
+    }
+
+    // Grid lines
+    ordersCtx.strokeStyle = "#1f364d";
+    ordersCtx.lineWidth = 1;
+
+    for (let x = 0; x <= GRID_WIDTH; x++) {
+        ordersCtx.beginPath();
+        ordersCtx.moveTo(x * CELL_SIZE + 0.5, 0);
+        ordersCtx.lineTo(x * CELL_SIZE + 0.5, ordersCanvas.height);
+        ordersCtx.stroke();
+    }
+
+    for (let y = 0; y <= GRID_HEIGHT; y++) {
+        ordersCtx.beginPath();
+        ordersCtx.moveTo(0, y * CELL_SIZE + 0.5);
+        ordersCtx.lineTo(ordersCanvas.width, y * CELL_SIZE + 0.5);
+        ordersCtx.stroke();
+    }
+}
+
 
 function drawCity(path, restaurant, stopsArray) {
     drawEmptyCity();
@@ -274,6 +506,30 @@ function onCanvasClick(event) {
     // Redraw map with all stops and existing path if there is one
     drawCity(currentPath, selectedRestaurant, stops);
 }
+
+function onOrdersCanvasClick(event) {
+    if (!ordersCanvas) return;
+
+    if (!orderSelectedRestaurant) {
+        alert("Please choose a restaurant for the order first.");
+        return;
+    }
+
+    const rect = ordersCanvas.getBoundingClientRect();
+    const offsetX = event.clientX - rect.left;
+    const offsetY = event.clientY - rect.top;
+
+    const x = Math.floor(offsetX / CELL_SIZE);
+    const y = Math.floor(offsetY / CELL_SIZE);
+
+    if (x < 0 || x >= GRID_WIDTH || y < 0 || y >= GRID_HEIGHT) {
+        return;
+    }
+
+    // Create and assign order at clicked location
+    createAndAssignOrder(orderSelectedRestaurant.id, x, y);
+}
+
 
 function resetRoute() {
     stops = [];
@@ -412,6 +668,25 @@ document.addEventListener("DOMContentLoaded", () => {
             resetRoute();
         });
     }
+
+    initOrdersCanvas();
+
+    const ordersCanvasElement = document.getElementById("ordersCanvas");
+    if (ordersCanvasElement) {
+        ordersCanvasElement.addEventListener("click", onOrdersCanvasClick);
+    }
+
+    const orderRestaurantSelect = document.getElementById("orderRestaurantSelect");
+    if (orderRestaurantSelect) {
+        orderRestaurantSelect.addEventListener("change", onOrderRestaurantChange);
+    }
+
+    setInterval(async () => {
+        await fetch("http://localhost:8080/api/sim/step", { method: "POST" });
+        await updateCourierMarkers();
+    }, 1000);
+
+
 
     // These are just display values after the implementation in the backend
     document.getElementById("gridWidth").value = 30;
