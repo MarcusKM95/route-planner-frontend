@@ -1,18 +1,37 @@
+// ============================
+// CONSTANTS & GLOBAL STATE
+// ============================
 
 const GRID_WIDTH = 30;
 const GRID_HEIGHT = 20;
 const CELL_SIZE = 20;
-let canvas, ctx;
-let ordersCanvas, ordersCtx;
-let cityTypes = []; // Array of city type objects from backend
-let stops = [];         // array of { x, y, label }
-let currentPath = [];   // last route path from backend
-let restaurants = [];
-let selectedRestaurant = null;
-let orderSelectedRestaurant = null;
-let couriers = [];
-let orders = [];
 
+// Top (planner) canvas
+let canvas, ctx;
+
+// Bottom (orders/live) canvas
+let ordersCanvas, ordersCtx;
+
+// City terrain
+let cityTypes = []; // [y][x] = "ROAD" | "BUILDING" | "PARK" | "RIVER"
+
+// Shared restaurants list
+let restaurants = [];
+
+// ---------- PLANNER MAP (TOP) STATE ----------
+let plannerSelectedRestaurant = null; // restaurant chosen in top dropdown
+let plannerStops = [];                // [{ x, y, label }]
+let plannerPath = [];                 // [{ x, y }]
+
+// ---------- ORDERS / LIVE MAP (BOTTOM) STATE ----------
+let orderSelectedRestaurant = null;   // restaurant chosen in bottom dropdown
+let couriers = [];                    // from /api/couriers
+let orders = [];                      // from /api/orders
+
+
+// ============================
+// DATA LOADING
+// ============================
 
 async function loadRestaurants() {
     try {
@@ -95,273 +114,17 @@ async function loadCityLayout() {
 
         // Redraw with updated layout
         drawEmptyCity();
-        if (ordersCtx) {
-            drawOrdersEmptyCity();
-        }
+        drawOrdersEmptyCity();
 
     } catch (err) {
         console.error("Error loading city layout:", err);
     }
 }
 
-function drawOrdersCity() {
-    drawOrdersEmptyCity();
-    if (!ordersCtx) return;
 
-    // Draw all restaurants (blue)
-    if (Array.isArray(restaurants)) {
-        for (const r of restaurants) {
-            drawOrdersCircle(r.x, r.y, "#3b82f6");
-        }
-    }
-
-    // Draw all orders (green)
-    if (Array.isArray(orders)) {
-        for (const o of orders) {
-            drawOrdersCircle(o.x, o.y, "#22c55e");
-        }
-    }
-
-    // Draw couriers (yellow)
-    if (Array.isArray(couriers)) {
-        for (const c of couriers) {
-            if (typeof c.currentX === "number" && typeof c.currentY === "number") {
-                drawOrdersCircle(c.currentX, c.currentY, "#eab308");
-            }
-        }
-    }
-}
-
-function drawOrdersCircle(x, y, color) {
-    if (!ordersCtx) return;
-
-    ordersCtx.fillStyle = color;
-    const cx = x * CELL_SIZE + CELL_SIZE / 2;
-    const cy = y * CELL_SIZE + CELL_SIZE / 2;
-    const r = CELL_SIZE * 0.35;
-
-    ordersCtx.beginPath();
-    ordersCtx.arc(cx, cy, r, 0, Math.PI * 2);
-    ordersCtx.fill();
-}
-
-async function updateCourierMarkers() {
-    try {
-        const [courierRes, orderRes] = await Promise.all([
-            fetch("http://localhost:8080/api/couriers"),
-            fetch("http://localhost:8080/api/orders")
-        ]);
-
-        if (!courierRes.ok || !orderRes.ok) {
-            console.error("Failed to load couriers or orders", courierRes.status, orderRes.status);
-            return;
-        }
-
-        couriers = await courierRes.json();
-        orders = await orderRes.json();
-
-        // Redraw main planner map
-        drawCity(currentPath, selectedRestaurant, stops);
-
-        // Redraw orders/live map
-        drawOrdersCity();
-
-    } catch (err) {
-        console.error("Error updating simulation:", err);
-    }
-}
-
-function onOrderRestaurantChange() {
-    const select = document.getElementById("orderRestaurantSelect");
-    const selectedId = select ? select.value : "";
-
-    if (!selectedId) {
-        orderSelectedRestaurant = null;
-        return;
-    }
-
-    const restaurant = restaurants.find(r => r.id === selectedId);
-    orderSelectedRestaurant = restaurant || null;
-}
-
-async function createAndAssignOrder(restaurantId, x, y) {
-    const infoDiv = document.getElementById("ordersInfo");
-
-    try {
-        // 1) Create order
-        const createRes = await fetch("http://localhost:8080/api/orders", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
-                restaurantId,
-                x,
-                y,
-                label: `Frontend order (${x},${y})`
-            })
-        });
-
-        if (!createRes.ok) {
-            const txt = await createRes.text();
-            console.error("Create order failed:", txt);
-            if (infoDiv) infoDiv.textContent = `Error creating order: ${txt}`;
-            return;
-        }
-
-        const order = await createRes.json();
-
-        // 2) Assign order
-        const assignRes = await fetch(`http://localhost:8080/api/orders/${order.id}/assign`, {
-            method: "POST"
-        });
-
-        if (!assignRes.ok) {
-            const txt = await assignRes.text();
-            console.error("Assign order failed:", txt);
-            if (infoDiv) infoDiv.textContent = `Error assigning courier: ${txt}`;
-            return;
-        }
-
-        const assignment = await assignRes.json();
-
-        if (infoDiv) {
-            infoDiv.innerHTML = `
-                <p><strong>Created order #${order.id}</strong> at (${order.x}, ${order.y})</p>
-                <p><strong>Assigned courier:</strong> ${assignment.courier.name} (${assignment.courier.id})</p>
-            `;
-        }
-
-        // 3) Refresh maps
-        await updateCourierMarkers();
-
-    } catch (err) {
-        console.error("Error creating/assigning order:", err);
-        if (infoDiv) infoDiv.textContent = `Error: ${err}`;
-    }
-}
-
-function onRestaurantChange() {
-    const select = document.getElementById("restaurantSelect");
-    const selectedId = select.value;
-
-    const startXInput = document.getElementById("startX");
-    const startYInput = document.getElementById("startY");
-
-    if (!selectedId) {
-        selectedRestaurant = null;
-        startXInput.value = "";
-        startYInput.value = "";
-        return;
-    }
-
-    const restaurant = restaurants.find(r => r.id === selectedId);
-    selectedRestaurant = restaurant || null;
-
-    if (selectedRestaurant) {
-        startXInput.value = selectedRestaurant.x;
-        startYInput.value = selectedRestaurant.y;
-
-        // Reset path and stops when changing restaurant
-        currentPath = [];
-        stops = [];
-        drawCity(currentPath, selectedRestaurant, stops);
-    }
-}
-
-function initCanvas() {
-    canvas = document.getElementById("cityCanvas");
-    if (!canvas) return;
-
-    // Set canvas size based on grid size
-    canvas.width = GRID_WIDTH * CELL_SIZE;
-    canvas.height = GRID_HEIGHT * CELL_SIZE;
-
-    ctx = canvas.getContext("2d");
-
-    drawEmptyCity();
-}
-
-function initOrdersCanvas() {
-    ordersCanvas = document.getElementById("ordersCanvas");
-    if (!ordersCanvas) return;
-
-    ordersCanvas.width = GRID_WIDTH * CELL_SIZE;
-    ordersCanvas.height = GRID_HEIGHT * CELL_SIZE;
-
-    ordersCtx = ordersCanvas.getContext("2d");
-
-    drawOrdersEmptyCity();
-}
-
-
-function drawEmptyCity() {
-    if (!ctx) return;
-
-    // Clear
-    ctx.clearRect(0, 0, canvas.width, canvas.height);
-
-    // Overall background
-    ctx.fillStyle = "#050816";
-    ctx.fillRect(0, 0, canvas.width, canvas.height);
-
-    // Draw cells by type
-    for (let y = 0; y < GRID_HEIGHT; y++) {
-        for (let x = 0; x < GRID_WIDTH; x++) {
-            const type =
-                cityTypes[y] && cityTypes[y][x]
-                    ? cityTypes[y][x]
-                    : "ROAD";
-
-            switch (type) {
-                case "BUILDING":
-                    ctx.fillStyle = "#4b5563";
-                    break;
-                case "PARK":
-                    ctx.fillStyle = "#14532d";
-                    break;
-                case "RIVER":
-                    ctx.fillStyle = "#1d4ed8";
-                    break;
-                case "ROAD":
-                default:
-                    ctx.fillStyle = "#101827";
-                    break;
-            }
-
-            ctx.fillRect(
-                x * CELL_SIZE,
-                y * CELL_SIZE,
-                CELL_SIZE,
-                CELL_SIZE
-            );
-        }
-    }
-
-    // Draw grid lines over the colored cells
-    ctx.strokeStyle = "#1f364d";
-    ctx.lineWidth = 1;
-
-    for (let x = 0; x <= GRID_WIDTH; x++) {
-        ctx.beginPath();
-        ctx.moveTo(x * CELL_SIZE + 0.5, 0);
-        ctx.lineTo(x * CELL_SIZE + 0.5, canvas.height);
-        ctx.stroke();
-    }
-
-    for (let y = 0; y <= GRID_HEIGHT; y++) {
-        ctx.beginPath();
-        ctx.moveTo(0, y * CELL_SIZE + 0.5);
-        ctx.lineTo(canvas.width, y * CELL_SIZE + 0.5);
-        ctx.stroke();
-    }
-
-    if (Array.isArray(couriers)) {
-        for (const c of couriers) {
-            if (typeof c.currentX === "number" && typeof c.currentY === "number") {
-                drawCellCircle(c.currentX, c.currentY, "#eab308");
-            }
-        }
-    }
-}
+// ============================
+// ORDERS / LIVE MAP DRAWING
+// ============================
 
 function drawOrdersEmptyCity() {
     if (!ordersCtx || !ordersCanvas) return;
@@ -424,27 +187,185 @@ function drawOrdersEmptyCity() {
     }
 }
 
+function drawOrdersCircle(x, y, color) {
+    if (!ordersCtx) return;
 
-function drawCity(path, restaurant, stopsArray) {
-    drawEmptyCity();
+    ordersCtx.fillStyle = color;
+    const cx = x * CELL_SIZE + CELL_SIZE / 2;
+    const cy = y * CELL_SIZE + CELL_SIZE / 2;
+    const r = CELL_SIZE * 0.35;
 
-    if (!ctx) return;
+    ordersCtx.beginPath();
+    ordersCtx.arc(cx, cy, r, 0, Math.PI * 2);
+    ordersCtx.fill();
+}
 
-    // Draw restaurant
-    if (restaurant) {
-        drawCellCircle(restaurant.x, restaurant.y, "#3b82f6"); // blue
-    }
+function drawOrdersCity() {
+    drawOrdersEmptyCity();
+    if (!ordersCtx) return;
 
-    // Draw all stops
-    if (Array.isArray(stopsArray)) {
-        for (const s of stopsArray) {
-            drawCellCircle(s.x, s.y, "#22c55e"); // green
+    // Draw all restaurants (blue)
+    if (Array.isArray(restaurants)) {
+        for (const r of restaurants) {
+            drawOrdersCircle(r.x, r.y, "#3b82f6");
         }
     }
 
-    // Draw path
+    // Draw ACTIVE orders (green)
+    if (Array.isArray(orders)) {
+        for (const o of orders) {
+            if (
+                o.status === "NEW" ||
+                o.status === "ASSIGNED" ||
+                o.status === "IN_PROGRESS"
+            ) {
+                drawOrdersCircle(o.x, o.y, "#22c55e");
+            }
+        }
+    }
+
+    // Draw couriers (yellow)
+    if (Array.isArray(couriers)) {
+        for (const c of couriers) {
+            if (typeof c.currentX === "number" && typeof c.currentY === "number") {
+                drawOrdersCircle(c.currentX, c.currentY, "#eab308");
+            }
+        }
+    }
+}
+
+
+// ============================
+// PLANNER MAP DRAWING (TOP)
+// ============================
+
+function initCanvas() {
+    canvas = document.getElementById("cityCanvas");
+    if (!canvas) return;
+
+    canvas.width = GRID_WIDTH * CELL_SIZE;
+    canvas.height = GRID_HEIGHT * CELL_SIZE;
+
+    ctx = canvas.getContext("2d");
+
+    drawEmptyCity();
+}
+
+function initOrdersCanvas() {
+    ordersCanvas = document.getElementById("ordersCanvas");
+    if (!ordersCanvas) return;
+
+    ordersCanvas.width = GRID_WIDTH * CELL_SIZE;
+    ordersCanvas.height = GRID_HEIGHT * CELL_SIZE;
+
+    ordersCtx = ordersCanvas.getContext("2d");
+
+    drawOrdersEmptyCity();
+}
+
+function drawEmptyCity() {
+    if (!ctx || !canvas) return;
+
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+    // Overall background
+    ctx.fillStyle = "#050816";
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+    // Draw cells by type
+    for (let y = 0; y < GRID_HEIGHT; y++) {
+        for (let x = 0; x < GRID_WIDTH; x++) {
+            const type =
+                cityTypes[y] && cityTypes[y][x]
+                    ? cityTypes[y][x]
+                    : "ROAD";
+
+            switch (type) {
+                case "BUILDING":
+                    ctx.fillStyle = "#4b5563";
+                    break;
+                case "PARK":
+                    ctx.fillStyle = "#14532d";
+                    break;
+                case "RIVER":
+                    ctx.fillStyle = "#1d4ed8";
+                    break;
+                case "ROAD":
+                default:
+                    ctx.fillStyle = "#101827";
+                    break;
+            }
+
+            ctx.fillRect(
+                x * CELL_SIZE,
+                y * CELL_SIZE,
+                CELL_SIZE,
+                CELL_SIZE
+            );
+        }
+    }
+
+    // Grid lines
+    ctx.strokeStyle = "#1f364d";
+    ctx.lineWidth = 1;
+
+    for (let x = 0; x <= GRID_WIDTH; x++) {
+        ctx.beginPath();
+        ctx.moveTo(x * CELL_SIZE + 0.5, 0);
+        ctx.lineTo(x * CELL_SIZE + 0.5, canvas.height);
+        ctx.stroke();
+    }
+
+    for (let y = 0; y <= GRID_HEIGHT; y++) {
+        ctx.beginPath();
+        ctx.moveTo(0, y * CELL_SIZE + 0.5);
+        ctx.lineTo(canvas.width, y * CELL_SIZE + 0.5);
+        ctx.stroke();
+    }
+
+    // Draw couriers on the planner map as well (optional)
+    if (Array.isArray(couriers)) {
+        for (const c of couriers) {
+            if (typeof c.currentX === "number" && typeof c.currentY === "number") {
+                drawCellCircle(c.currentX, c.currentY, "#eab308");
+            }
+        }
+    }
+}
+
+function drawCellCircle(x, y, color) {
+    if (!ctx) return;
+
+    ctx.fillStyle = color;
+    const cx = x * CELL_SIZE + CELL_SIZE / 2;
+    const cy = y * CELL_SIZE + CELL_SIZE / 2;
+    const r = CELL_SIZE * 0.35;
+
+    ctx.beginPath();
+    ctx.arc(cx, cy, r, 0, Math.PI * 2);
+    ctx.fill();
+}
+
+// Generic: draw planner map with path + stops
+function drawCity(path, restaurant, stopsArray) {
+    drawEmptyCity();
+    if (!ctx) return;
+
+    // Draw planner restaurant (blue)
+    if (restaurant) {
+        drawCellCircle(restaurant.x, restaurant.y, "#3b82f6");
+    }
+
+    // Draw planner stops (green)
+    if (Array.isArray(stopsArray)) {
+        for (const s of stopsArray) {
+            drawCellCircle(s.x, s.y, "#22c55e");
+        }
+    }
+
+    // Draw planner path (red)
     if (Array.isArray(path) && path.length > 1) {
-        ctx.strokeStyle = "#ef4444"; // red
+        ctx.strokeStyle = "#ef4444";
         ctx.lineWidth = 3;
         ctx.beginPath();
 
@@ -466,17 +387,40 @@ function drawCity(path, restaurant, stopsArray) {
     }
 }
 
-function drawCellCircle(x, y, color) {
-    if (!ctx) return;
 
-    ctx.fillStyle = color;
-    const cx = x * CELL_SIZE + CELL_SIZE / 2;
-    const cy = y * CELL_SIZE + CELL_SIZE / 2;
-    const r = CELL_SIZE * 0.35;
+// ============================
+// PLANNER INTERACTION (TOP)
+// ============================
 
-    ctx.beginPath();
-    ctx.arc(cx, cy, r, 0, Math.PI * 2);
-    ctx.fill();
+function onRestaurantChange() {
+    const select = document.getElementById("restaurantSelect");
+    const selectedId = select.value;
+
+    const startXInput = document.getElementById("startX");
+    const startYInput = document.getElementById("startY");
+
+    if (!selectedId) {
+        plannerSelectedRestaurant = null;
+        startXInput.value = "";
+        startYInput.value = "";
+        plannerStops = [];
+        plannerPath = [];
+        drawCity(plannerPath, plannerSelectedRestaurant, plannerStops);
+        return;
+    }
+
+    const restaurant = restaurants.find(r => r.id === selectedId);
+    plannerSelectedRestaurant = restaurant || null;
+
+    if (plannerSelectedRestaurant) {
+        startXInput.value = plannerSelectedRestaurant.x;
+        startYInput.value = plannerSelectedRestaurant.y;
+
+        // Reset path and stops when changing restaurant
+        plannerPath = [];
+        plannerStops = [];
+        drawCity(plannerPath, plannerSelectedRestaurant, plannerStops);
+    }
 }
 
 function onCanvasClick(event) {
@@ -494,46 +438,16 @@ function onCanvasClick(event) {
         return;
     }
 
-    // Update End X / End Y inputs
-    const endXInput = document.getElementById("endX");
-    const endYInput = document.getElementById("endY");
+    // Top map: add planner stop
+    const label = `Stop ${plannerStops.length + 1}`;
+    plannerStops.push({ x, y, label });
 
-    endXInput.value = x;
-    endYInput.value = y;
-    const label = `Stop ${stops.length + 1}`;
-    stops.push({ x, y, label });
-
-    // Redraw map with all stops and existing path if there is one
-    drawCity(currentPath, selectedRestaurant, stops);
+    drawCity(plannerPath, plannerSelectedRestaurant, plannerStops);
 }
-
-function onOrdersCanvasClick(event) {
-    if (!ordersCanvas) return;
-
-    if (!orderSelectedRestaurant) {
-        alert("Please choose a restaurant for the order first.");
-        return;
-    }
-
-    const rect = ordersCanvas.getBoundingClientRect();
-    const offsetX = event.clientX - rect.left;
-    const offsetY = event.clientY - rect.top;
-
-    const x = Math.floor(offsetX / CELL_SIZE);
-    const y = Math.floor(offsetY / CELL_SIZE);
-
-    if (x < 0 || x >= GRID_WIDTH || y < 0 || y >= GRID_HEIGHT) {
-        return;
-    }
-
-    // Create and assign order at clicked location
-    createAndAssignOrder(orderSelectedRestaurant.id, x, y);
-}
-
 
 function resetRoute() {
-    stops = [];
-    currentPath = [];
+    plannerStops = [];
+    plannerPath = [];
 
     // Clear destination inputs
     const endXInput = document.getElementById("endX");
@@ -547,8 +461,7 @@ function resetRoute() {
     if (metricsDiv) metricsDiv.innerHTML = "";
     if (pathOutput) pathOutput.textContent = "";
 
-    // Redraw map with only restaurant
-    drawCity(currentPath, selectedRestaurant, stops);
+    drawCity(plannerPath, plannerSelectedRestaurant, plannerStops);
 }
 
 async function computeRoute() {
@@ -560,17 +473,17 @@ async function computeRoute() {
     const metricsDiv = document.getElementById("metrics");
     const pathOutput = document.getElementById("pathOutput");
 
-    if (!selectedRestaurant) {
+    if (!plannerSelectedRestaurant) {
         metricsDiv.innerHTML = `<span class="error">Please choose a restaurant first.</span>`;
         pathOutput.textContent = "";
         return;
     }
 
-    // Build stops list for request, fallback to single end point if no stops.
+    // Build stops list for request, fallback to single end point if no plannerStops
     let stopsForRequest;
 
-    if (stops.length > 0) {
-        stopsForRequest = stops.map((s, index) => ({
+    if (plannerStops.length > 0) {
+        stopsForRequest = plannerStops.map((s, index) => ({
             x: s.x,
             y: s.y,
             label: s.label || `Stop ${index + 1}`
@@ -588,7 +501,7 @@ async function computeRoute() {
     }
 
     const body = {
-        restaurantId: selectedRestaurant.id,
+        restaurantId: plannerSelectedRestaurant.id,
         stops: stopsForRequest,
         heuristic,
         strategy
@@ -610,10 +523,10 @@ async function computeRoute() {
 
         const data = await response.json();
 
-        currentPath = Array.isArray(data.path) ? data.path : [];
+        plannerPath = Array.isArray(data.path) ? data.path : [];
 
         metricsDiv.innerHTML = `
-            <p><strong>Restaurant:</strong> ${selectedRestaurant.name} (${selectedRestaurant.x}, ${selectedRestaurant.y})</p>
+            <p><strong>Restaurant:</strong> ${plannerSelectedRestaurant.name} (${plannerSelectedRestaurant.x}, ${plannerSelectedRestaurant.y})</p>
             <p><strong>Stops:</strong> ${stopsForRequest.map(s => `(${s.x}, ${s.y})`).join(" → ")}</p>
             <p><strong>Strategy:</strong> ${strategy}</p>
             <p><strong>Total distance:</strong> ${data.totalDistance}</p>
@@ -621,8 +534,7 @@ async function computeRoute() {
             <p><strong>Total time (ms):</strong> ${data.timeMs}</p>
         `;
 
-        // Draw multi-stop path & stops
-        drawCity(currentPath, selectedRestaurant, stopsForRequest);
+        drawCity(plannerPath, plannerSelectedRestaurant, plannerStops);
 
         if (Array.isArray(data.path)) {
             const formattedPath = data.path
@@ -641,26 +553,241 @@ async function computeRoute() {
 }
 
 
+// ============================
+// ORDER CREATION (BOTTOM MAP)
+// ============================
+
+function onOrderRestaurantChange() {
+    const select = document.getElementById("orderRestaurantSelect");
+    const selectedId = select ? select.value : "";
+
+    if (!selectedId) {
+        orderSelectedRestaurant = null;
+        return;
+    }
+
+    const restaurant = restaurants.find(r => r.id === selectedId);
+    orderSelectedRestaurant = restaurant || null;
+}
+
+function onOrdersCanvasClick(event) {
+    if (!ordersCanvas) return;
+
+    if (!orderSelectedRestaurant) {
+        alert("Please choose a restaurant for the order first.");
+        return;
+    }
+
+    const rect = ordersCanvas.getBoundingClientRect();
+    const offsetX = event.clientX - rect.left;
+    const offsetY = event.clientY - rect.top;
+
+    const x = Math.floor(offsetX / CELL_SIZE);
+    const y = Math.floor(offsetY / CELL_SIZE);
+
+    if (x < 0 || x >= GRID_WIDTH || y < 0 || y >= GRID_HEIGHT) {
+        return;
+    }
+
+    // Create and assign order at clicked location (bottom map only)
+    createAndAssignOrder(orderSelectedRestaurant.id, x, y);
+}
+
+async function createAndAssignOrder(restaurantId, x, y) {
+    const infoDiv = document.getElementById("ordersInfo");
+
+    try {
+        // 1) Create order
+        const createRes = await fetch("http://localhost:8080/api/orders", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+                restaurantId,
+                x,
+                y,
+                label: `Frontend order (${x},${y})`
+            })
+        });
+
+        if (!createRes.ok) {
+            const txt = await createRes.text();
+            console.error("Create order failed:", txt);
+            if (infoDiv) infoDiv.textContent = `Error creating order: ${txt}`;
+            return;
+        }
+
+        const order = await createRes.json();
+
+        // 2) Assign order
+        const assignRes = await fetch(`http://localhost:8080/api/orders/${order.id}/assign`, {
+            method: "POST"
+        });
+
+        if (!assignRes.ok) {
+            const txt = await assignRes.text();
+            console.error("Assign order failed:", txt);
+            if (infoDiv) infoDiv.textContent = `Error assigning courier: ${txt}`;
+            return;
+        }
+
+        const assignment = await assignRes.json();
+
+        if (infoDiv) {
+            infoDiv.innerHTML = `
+                <p><strong>Created order #${order.id}</strong> at (${order.x}, ${order.y})</p>
+                <p><strong>Assigned courier:</strong> ${assignment.courier.name} (${assignment.courier.id})</p>
+            `;
+        }
+
+        // We do NOT modify plannerStops / plannerPath here anymore.
+        // The top planner remains an independent tool.
+
+        // Refresh orders & couriers from backend
+        await updateCourierMarkers();
+
+    } catch (err) {
+        console.error("Error creating/assigning order:", err);
+        if (infoDiv) infoDiv.textContent = `Error: ${err}`;
+    }
+}
+
+
+// ============================
+// ORDERS PANELS & SIMULATION
+// ============================
+
+function renderOrdersPanels() {
+    const activeDiv = document.getElementById("activeOrdersPanel");
+    const deliveredDiv = document.getElementById("deliveredOrdersPanel");
+    if (!activeDiv || !deliveredDiv) return;
+
+    const activeOrders = [];
+    const deliveredOrders = [];
+
+    if (Array.isArray(orders)) {
+        for (const o of orders) {
+            if (o.status === "DELIVERED") {
+                deliveredOrders.push(o);
+            } else if (
+                o.status === "NEW" ||
+                o.status === "ASSIGNED" ||
+                o.status === "IN_PROGRESS"
+            ) {
+                activeOrders.push(o);
+            }
+        }
+    }
+
+    const getRestaurantName = (restaurantId) => {
+        if (!Array.isArray(restaurants)) return restaurantId;
+        const r = restaurants.find(r => r.id === restaurantId);
+        return r ? r.name : restaurantId;
+    };
+
+    // Active
+    if (activeOrders.length === 0) {
+        activeDiv.innerHTML = `<p class="order-empty">No active orders</p>`;
+    } else {
+        activeDiv.innerHTML = activeOrders.map(o => {
+            const restaurantName = getRestaurantName(o.restaurantId);
+            const courierInfo = o.assignedCourierId
+                ? `Courier: ${o.assignedCourierId}`
+                : `Courier: (unassigned)`;
+            return `
+                <div class="order-item">
+                  <div class="order-id">#${o.id} – ${o.label || ""}</div>
+                  <div class="order-meta">
+                    From: ${restaurantName} (${o.restaurantId})<br/>
+                    To: (${o.x}, ${o.y})<br/>
+                    Status: ${o.status}<br/>
+                    ${courierInfo}
+                  </div>
+                </div>
+            `;
+        }).join("");
+    }
+
+    // Delivered
+    if (deliveredOrders.length === 0) {
+        deliveredDiv.innerHTML = `<p class="order-empty">No delivered orders yet</p>`;
+    } else {
+        deliveredDiv.innerHTML = deliveredOrders.map(o => {
+            const restaurantName = getRestaurantName(o.restaurantId);
+            return `
+                <div class="order-item">
+                  <div class="order-id">#${o.id} – ${o.label || ""}</div>
+                  <div class="order-meta">
+                    From: ${restaurantName} (${o.restaurantId})<br/>
+                    To: (${o.x}, ${o.y})<br/>
+                    Status: ${o.status}
+                  </div>
+                </div>
+            `;
+        }).join("");
+    }
+}
+
+async function updateCourierMarkers() {
+    try {
+        const [courierRes, orderRes] = await Promise.all([
+            fetch("http://localhost:8080/api/couriers"),
+            fetch("http://localhost:8080/api/orders")
+        ]);
+
+        if (!courierRes.ok || !orderRes.ok) {
+            console.error("Failed to load couriers or orders", courierRes.status, orderRes.status);
+            return;
+        }
+
+        couriers = await courierRes.json();
+        orders = await orderRes.json();
+
+        // Redraw planner map (couriers are drawn in drawEmptyCity)
+        drawCity(plannerPath, plannerSelectedRestaurant, plannerStops);
+
+        // Redraw orders/live map
+        drawOrdersCity();
+
+        renderOrdersPanels();
+
+    } catch (err) {
+        console.error("Error updating simulation:", err);
+    }
+}
+
+
+// ============================
+// BOOTSTRAP
+// ============================
+
 document.addEventListener("DOMContentLoaded", () => {
     loadRestaurants();
     initCanvas();
+    initOrdersCanvas();
     loadCityLayout();
 
-    //click handler implementation
+    // Top planner canvas click
     const canvasElement = document.getElementById("cityCanvas");
     if (canvasElement) {
         canvasElement.addEventListener("click", onCanvasClick);
     }
 
+    // Planner restaurant dropdown
     const restaurantSelect = document.getElementById("restaurantSelect");
-    restaurantSelect.addEventListener("change", onRestaurantChange);
+    if (restaurantSelect) {
+        restaurantSelect.addEventListener("change", onRestaurantChange);
+    }
 
+    // Planner run button
     const runButton = document.getElementById("runButton");
-    runButton.addEventListener("click", (e) => {
-        e.preventDefault();
-        computeRoute();
-    });
+    if (runButton) {
+        runButton.addEventListener("click", (e) => {
+            e.preventDefault();
+            computeRoute();
+        });
+    }
 
+    // Planner reset button
     const resetButton = document.getElementById("resetButton");
     if (resetButton) {
         resetButton.addEventListener("click", (e) => {
@@ -669,26 +796,25 @@ document.addEventListener("DOMContentLoaded", () => {
         });
     }
 
-    initOrdersCanvas();
-
+    // Orders canvas click
     const ordersCanvasElement = document.getElementById("ordersCanvas");
     if (ordersCanvasElement) {
         ordersCanvasElement.addEventListener("click", onOrdersCanvasClick);
     }
 
+    // Orders restaurant dropdown
     const orderRestaurantSelect = document.getElementById("orderRestaurantSelect");
     if (orderRestaurantSelect) {
         orderRestaurantSelect.addEventListener("change", onOrderRestaurantChange);
     }
 
+    // Simulation loop: move couriers & refresh maps
     setInterval(async () => {
         await fetch("http://localhost:8080/api/sim/step", { method: "POST" });
         await updateCourierMarkers();
-    }, 1000);
+    }, 500);
 
-
-
-    // These are just display values after the implementation in the backend
-    document.getElementById("gridWidth").value = 30;
-    document.getElementById("gridHeight").value = 20;
+    // Display-only fields
+    document.getElementById("gridWidth").value = GRID_WIDTH;
+    document.getElementById("gridHeight").value = GRID_HEIGHT;
 });

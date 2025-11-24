@@ -87,3 +87,44 @@ button:hover {
     color: #cccccc;
     margin-top: 0.4rem;
 }
+.orders-section {
+    margin-top: 20px;
+}
+
+.orders-panels {
+    display: flex;
+    gap: 16px;
+    align-items: flex-start;
+}
+
+.orders-panel {
+    flex: 1;
+    background: #020617;
+    border: 1px solid #1f2937;
+    border-radius: 8px;
+    padding: 8px 12px;
+    max-height: 200px;
+    overflow-y: auto;
+}
+
+.orders-panel h3 {
+    margin-top: 0;
+    margin-bottom: 8px;
+    font-size: 0.95rem;
+}
+.order-item {
+    border-bottom: 1px solid #1f2937;
+    padding: 4px 0;
+    font-size: 0.85rem;
+}
+.order-item:last-child {
+    border-bottom: none;
+}
+.order-id {
+    font-weight: 600;
+}
+.order-meta {
+    opacity: 0.8;
+    font-size: 0.8rem;
+}
+
